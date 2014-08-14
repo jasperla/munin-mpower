@@ -1,0 +1,110 @@
+#!/usr/bin/ruby
+#
+# Munin plugin to retrieve the total throughput of an mPower device.
+#
+# Released under the terms of the MIT license
+# Copyright (c) 2014 Jasper Lievisse Adriaanse <jasper@humppa.nl>
+#
+# Parameters understood:
+#
+# 	config   (required)
+# 	autoconf (optional - used by munin-config)
+
+# Magic markers (optional - used by munin-config and installation
+# scripts):
+#
+#%# family=auto
+
+require 'mfi'
+
+device   = ENV['device']
+username = ENV['username']
+password = ENV['password']
+
+fields = {
+  :power => {
+    :label => 'Total power (W)',
+    :info  => 'Total power usage by all outlets.',
+    :conf  => ENV['power'] || 'yes',
+    :data  => 0.0,
+  } ,
+  :outlets => {
+    :label => 'Outlets present',
+    :info  => 'Total number of outlets for the device.',
+    :conf  => ENV['outlets'] || 'yes',
+    :data  => 0,
+  },
+  :enabled => {
+    :label => 'Outlets enabled',
+    :info  => 'Number of outlets marked enabled (collecting data for mFi).',
+    :conf  => ENV['enabled'] || 'yes',
+    :data  => 0,
+  },
+  :energy => {
+    :label => 'Total energy (kWh)',
+    :info  => 'Total energy used by all outlets.',
+    :conf  => ENV['energy'] || 'yes',
+    :data  => 0.0,
+  },
+  :current => {
+    :label => 'Total current (A)',
+    :info  => 'Current usage by all outlets.',
+    :conf  => ENV['current'] || 'yes',
+    :data  => 0.0,
+  },
+  :voltage => {
+    :label => 'Average voltage (V)',
+    :info  => 'Average voltage across all outlets.',
+    :conf  => ENV['voltage'] || 'yes',
+    :data  => 0.0,
+  },
+}
+
+def fmt value
+  "%.1f" % value
+end
+
+case ARGV[0]
+when 'config'
+  puts 'graph_category sensors'
+	puts 'graph_args --base 1000'
+  puts "graph_title mPower #{device} values"
+
+  fields.each do |field,v|
+    if fields[field][:conf] == 'yes'
+      puts "#{field}.label #{fields[field][:label]}"
+      puts "#{field}.info #{fields[field][:info]}"
+    end
+  end
+
+  exit 0
+when 'autoconf'
+  puts 'no'
+  exit 1
+else
+  mpower = MFi::MPower.new(
+    :host => device,
+    :user => username,
+    :pass => password
+  )
+
+  mpower.exec do |m|
+    m.sample.each do |reading|
+      fields[:outlets][:data] += 1
+      fields[:enabled][:data] += reading.enable
+      fields[:power][:data]   += reading.power
+      fields[:voltage][:data] += reading.voltage
+      fields[:current][:data] += reading.current
+      fields[:energy][:data]  += reading.energy
+    end
+
+    fields[:voltage][:data] = fields[:voltage][:data] / fields[:outlets][:data]
+  end
+
+  if fields[:outlets][:conf] == 'yes' then puts "outlets.value #{fields[:outlets][:data]}"      end
+  if fields[:enabled][:conf] == 'yes' then puts "enabled.value #{fields[:enabled][:data]}"      end
+  if fields[:power][:conf]   == 'yes' then puts "power.value #{fmt(fields[:power][:data])}"     end
+  if fields[:energy][:conf]  == 'yes' then puts "energy.value #{fmt(fields[:energy][:data])}"   end
+  if fields[:current][:conf] == 'yes' then puts "current.value #{fmt(fields[:current][:data])}" end
+  if fields[:voltage][:conf] == 'yes' then puts "voltage.value #{fmt(fields[:voltage][:data])}" end
+end
